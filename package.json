@@ -1,0 +1,29 @@
+{
+  "name": "quest",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Social challenge protocol on Solana",
+  "scripts": {
+    "dev:web": "pnpm --filter @quest/web dev",
+    "dev:mobile": "pnpm --filter @quest/mobile start",
+    "build": "turbo run build",
+    "build:web": "pnpm --filter @quest/web build",
+    "build:contracts": "cd contracts && anchor build",
+    "test": "turbo run test",
+    "test:contracts": "cd contracts && anchor test",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.3.0"
+  },
+  "packageManager": "pnpm@8.15.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}
