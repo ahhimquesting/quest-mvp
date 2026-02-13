@@ -1,93 +1,53 @@
 # QUEST
 
-**Side quests. Main rewards.**
+We wanted to find out if we can turn "i'll give you 100 bucks to do {stupid idea}" into a social challenge protocol. Post quests, complete them on video, collect the reward.
 
-A social challenge protocol on Solana. Post quests with token rewards, complete them on video, collect the loot.
+## How it works
 
-## Overview
+User A creates a quest and funds the reward with $QUEST → User B accepts the challenge → Records video proof → AI verifies if it was completed → Winner receives $QUEST payout.
 
-QUEST turns everyday dares into staked missions:
+## What we're testing
 
-1. **Post** — Create a challenge with a $QUEST reward
-2. **Claim** — Accept the quest
-3. **Prove** — Record video proof
-4. **Collect** — AI verifies, winner gets paid
+1. **can AI be the trust layer?** if verification actually works, you don't need to know someone to dare them. gets interesting once strangers start challenging strangers.
 
-## Packages
+2. **is "challenge video" a content format?** stakes make content better. the money makes it interesting. is this a primitive?
+
+3. **can money bootstrap a network?** post a quest, money brings people. skip the invite-your-friends grind.
+
+---
+
+## Stack
 
 ```
-quest/
-├── apps/
-│   ├── web/          # Next.js web application
-│   └── mobile/       # React Native (Expo) mobile app
-├── contracts/
-│   └── programs/
-│       └── quest/    # Anchor program (Solana)
-├── packages/
-│   ├── sdk/          # TypeScript SDK
-│   └── ui/           # Shared UI components
-└── docs/             # Documentation & specs
+apps/web/        # nextjs 14, privy auth, tailwind
+contracts/       # anchor program on solana  
+packages/sdk/    # typescript sdk
+docs/PRD.md      # full spec
 ```
 
-## Quick Start
+### contracts
 
-### Prerequisites
+anchor program handles escrow, quest creation, claims, settlement. funds lock on create, release on verified completion. 2.5% fee on payouts (half burned, half treasury).
 
-- Node.js 20+
-- pnpm 8+
-- Rust 1.75+
-- Solana CLI 1.18+
-- Anchor 0.30+
+### verification
 
-### Install
+using gpt5-mini to analyze video and compare it to the quest description. spits out a confidence score. high confidence = auto-settle. low confidence = goes to the quest creator to review. disputes go to community vote.
+
+### storage
+
+videos go to arweave so they're permanent. thumbnails on cloudflare r2. hash stored on-chain for verification.
+
+### auth
+
+privy for login (email, google, wallet, whatever). also does embedded wallets so people without crypto can still use it.
 
 ```bash
 pnpm install
+pnpm dev:web           # frontend
+pnpm build:contracts   # anchor build
+pnpm test:contracts    # anchor test
 ```
 
-### Development
+---
 
-```bash
-# Start web app
-pnpm dev:web
-
-# Start mobile app  
-pnpm dev:mobile
-
-# Build contracts
-pnpm build:contracts
-
-# Run tests
-pnpm test
-```
-
-## Documentation
-
-- [Product Requirements (PRD)](./docs/PRD.md)
-- [Architecture](./docs/ARCHITECTURE.md)
-- [API Reference](./docs/API.md)
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|------------|
-| Frontend | Next.js 14, React Native, TailwindCSS |
-| Auth | Privy |
-| API | Cloudflare Workers, Hono |
-| Database | Turso, Redis |
-| Blockchain | Solana, Anchor |
-| Storage | Arweave, Cloudflare R2 |
-| AI | OpenAI GPT-4V, Whisper |
-
-## Token
-
-**$QUEST** — SPL token on Solana
-
-- Quest rewards (primary currency)
-- XP multipliers for native payments
-- Verification rewards
-- Loot drops for viral content
-
-## License
-
-MIT
+wip / internal
