@@ -3,105 +3,155 @@ import { AnchorProvider, Program, Idl, BN } from '@coral-xyz/anchor'
 
 // Constants
 export const QUEST_MINT = new PublicKey('E7Xfasv5CRTNc6Xb16w36BZk3HRSogh8T4ZFimSnpump')
+export const PROGRAM_ID = new PublicKey('QUESTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')
 
 // Types
-export type QuestType = 'direct' | 'open' | 'guild' | 'chain'
+export type QuestType = 'direct' | 'open'
 export type QuestStatus = 'active' | 'claimed' | 'completed' | 'failed' | 'cancelled' | 'expired'
-export type ClaimStatus = 'active' | 'submitted' | 'approved' | 'rejected' | 'expired'
+export type ClaimStatus = 'active' | 'submitted' | 'approved' | 'rejected' | 'abandoned' | 'expired'
+
+export interface User {
+  id: string
+  pubkey: string
+  username: string
+  avatarUrl?: string
+  questsCompleted: number
+  questsPosted: number
+  activeClaims: number
+  flags: number
+  createdAt: number
+}
 
 export interface Quest {
   id: string
   onchainId: string
-  creator: string
+  creatorId: string
   description: string
   questType: QuestType
   status: QuestStatus
   rewardAmount: number
-  rewardToken: 'QUEST' | 'SOL' | 'USDC'
-  target?: string
+  rewardMint: string
+  targetPubkey?: string
   maxClaimers: number
   currentClaimers: number
-  timeLimit?: number
+  deadline?: number
+  escrowPda: string
   createdAt: number
 }
 
 export interface Claim {
   id: string
   questId: string
-  claimer: string
+  claimerId: string
   status: ClaimStatus
   stakeAmount: number
+  proofDeadline: number
+  reviewDeadline?: number
   claimedAt: number
-  submittedAt?: number
+}
+
+export interface Proof {
+  id: string
+  claimId: string
+  videoUrl: string
+  videoHash: string
+  thumbnailUrl: string
+  durationSeconds: number
+  transcript?: string
+  aiConfidence?: number
+  aiDecision?: 'APPROVE' | 'REJECT' | 'UNCERTAIN'
+  aiReasoning?: string
+  safetyFlags: string[]
+  finalDecision?: 'approved' | 'rejected'
+  decidedBy: 'ai' | 'creator' | 'timeout'
+  createdAt: number
 }
 
 export interface CreateQuestParams {
   description: string
   rewardAmount: number
-  rewardToken: 'QUEST' | 'SOL' | 'USDC'
+  rewardMint: string
   questType: QuestType
-  target?: string
+  targetPubkey?: string
   maxClaimers?: number
   timeLimitHours?: number
 }
 
 export interface ClaimQuestParams {
   questId: string
-  stakeAmount?: number
+  stakeAmount: number
 }
 
 export interface SubmitProofParams {
-  questId: string
+  claimId: string
   videoUrl: string
   videoHash: string
 }
 
-// SDK Class
+class QuestAPIError extends Error {
+  constructor(public status: number, message: string) {
+    super(message)
+    this.name = 'QuestAPIError'
+  }
+}
+
 export class QuestSDK {
   private connection: Connection
   private provider: AnchorProvider | null = null
-  private program: Program | null = null
   private apiUrl: string
+  private authToken: string | null = null
 
   constructor(config: {
     rpcUrl: string
     apiUrl: string
-    programId?: string
   }) {
     this.connection = new Connection(config.rpcUrl, 'confirmed')
     this.apiUrl = config.apiUrl
   }
 
-  // Initialize with wallet
-  async connect(provider: AnchorProvider) {
-    this.provider = provider
-    // Load program IDL and initialize
-    // this.program = new Program(IDL, PROGRAM_ID, provider)
+  setAuthToken(token: string) {
+    this.authToken = token
   }
 
-  // Quest Operations
+  async connect(provider: AnchorProvider) {
+    this.provider = provider
+  }
+
+  private async request<T>(path: string, options?: RequestInit): Promise<T> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+    if (this.authToken) {
+      headers['Authorization'] = `Bearer ${this.authToken}`
+    }
+
+    const response = await fetch(`${this.apiUrl}${path}`, {
+      ...options,
+      headers: { ...headers, ...options?.headers },
+    })
+
+    if (!response.ok) {
+      throw new QuestAPIError(response.status, response.statusText)
+    }
+
+    return response.json()
+  }
+
+  // Auth
+  async verifyAuth(): Promise<{ userId: string; wallet: string }> {
+    return this.request('/api/auth/verify', { method: 'POST' })
+  }
+
+  // Quests
   async createQuest(params: CreateQuestParams): Promise<Quest> {
-    const response = await fetch(`${this.apiUrl}/api/quests`, {
+    return this.request('/api/quests', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
     })
-    
-    if (!response.ok) {
-      throw new Error(`Failed to create quest: ${response.statusText}`)
-    }
-    
-    return response.json()
   }
 
   async getQuest(questId: string): Promise<Quest> {
-    const response = await fetch(`${this.apiUrl}/api/quests/${questId}`)
-    
-    if (!response.ok) {
-      throw new Error(`Failed to get quest: ${response.statusText}`)
-    }
-    
-    return response.json()
+    return this.request(`/api/quests/${questId}`)
   }
 
   async listQuests(params?: {
@@ -118,135 +168,81 @@ export class QuestSDK {
     if (params?.limit) searchParams.set('limit', params.limit.toString())
     if (params?.offset) searchParams.set('offset', params.offset.toString())
 
-    const response = await fetch(`${this.apiUrl}/api/quests?${searchParams}`)
-    
-    if (!response.ok) {
-      throw new Error(`Failed to list quests: ${response.statusText}`)
-    }
-    
-    return response.json()
+    return this.request(`/api/quests?${searchParams}`)
   }
 
-  async claimQuest(params: ClaimQuestParams): Promise<Claim> {
-    const response = await fetch(`${this.apiUrl}/api/quests/${params.questId}/claim`, {
+  async cancelQuest(questId: string): Promise<void> {
+    await this.request(`/api/quests/${questId}`, { method: 'DELETE' })
+  }
+
+  // Claims
+  async claimQuest(questId: string, params: ClaimQuestParams): Promise<Claim> {
+    return this.request(`/api/quests/${questId}/claim`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stakeAmount: params.stakeAmount || 0 }),
+      body: JSON.stringify(params),
     })
-    
-    if (!response.ok) {
-      throw new Error(`Failed to claim quest: ${response.statusText}`)
-    }
-    
-    return response.json()
   }
 
-  async submitProof(params: SubmitProofParams): Promise<{ proofId: string; aiScore: number }> {
-    const response = await fetch(`${this.apiUrl}/api/quests/${params.questId}/proof`, {
+  async abandonClaim(claimId: string): Promise<void> {
+    await this.request(`/api/claims/${claimId}`, { method: 'DELETE' })
+  }
+
+  async submitProof(params: SubmitProofParams): Promise<Proof> {
+    return this.request(`/api/claims/${params.claimId}/proof`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         videoUrl: params.videoUrl,
         videoHash: params.videoHash,
       }),
     })
-    
-    if (!response.ok) {
-      throw new Error(`Failed to submit proof: ${response.statusText}`)
-    }
-    
-    return response.json()
   }
 
-  async approveQuest(questId: string): Promise<void> {
-    const response = await fetch(`${this.apiUrl}/api/quests/${questId}/approve`, {
-      method: 'POST',
+  async approveClaim(claimId: string): Promise<void> {
+    await this.request(`/api/claims/${claimId}/approve`, { method: 'POST' })
+  }
+
+  async rejectClaim(claimId: string): Promise<void> {
+    await this.request(`/api/claims/${claimId}/reject`, { method: 'POST' })
+  }
+
+  // Users
+  async getMe(): Promise<User> {
+    return this.request('/api/users/me')
+  }
+
+  async updateMe(data: { username?: string; avatarUrl?: string }): Promise<User> {
+    return this.request('/api/users/me', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
     })
-    
-    if (!response.ok) {
-      throw new Error(`Failed to approve quest: ${response.statusText}`)
-    }
   }
 
-  async rejectQuest(questId: string): Promise<void> {
-    const response = await fetch(`${this.apiUrl}/api/quests/${questId}/reject`, {
-      method: 'POST',
-    })
-    
-    if (!response.ok) {
-      throw new Error(`Failed to reject quest: ${response.statusText}`)
-    }
+  async getUser(pubkey: string): Promise<User> {
+    return this.request(`/api/users/${pubkey}`)
   }
 
-  async cancelQuest(questId: string): Promise<void> {
-    const response = await fetch(`${this.apiUrl}/api/quests/${questId}`, {
-      method: 'DELETE',
-    })
-    
-    if (!response.ok) {
-      throw new Error(`Failed to cancel quest: ${response.statusText}`)
-    }
+  // Feed
+  async getFeed(params?: { limit?: number; offset?: number }): Promise<Quest[]> {
+    const searchParams = new URLSearchParams()
+    if (params?.limit) searchParams.set('limit', params.limit.toString())
+    if (params?.offset) searchParams.set('offset', params.offset.toString())
+
+    return this.request(`/api/feed?${searchParams}`)
   }
 
-  // User Operations
-  async getUser(userId: string): Promise<any> {
-    const response = await fetch(`${this.apiUrl}/api/users/${userId}`)
-    
-    if (!response.ok) {
-      throw new Error(`Failed to get user: ${response.statusText}`)
-    }
-    
-    return response.json()
+  async getMyFeed(): Promise<{ quests: Quest[]; claims: Claim[] }> {
+    return this.request('/api/feed/mine')
   }
 
-  async getUserQuests(userId: string): Promise<Quest[]> {
-    const response = await fetch(`${this.apiUrl}/api/users/${userId}/quests`)
-    
-    if (!response.ok) {
-      throw new Error(`Failed to get user quests: ${response.statusText}`)
-    }
-    
-    return response.json()
-  }
-
-  async getUserClaims(userId: string): Promise<Claim[]> {
-    const response = await fetch(`${this.apiUrl}/api/users/${userId}/claims`)
-    
-    if (!response.ok) {
-      throw new Error(`Failed to get user claims: ${response.statusText}`)
-    }
-    
-    return response.json()
-  }
-
-  // Feed Operations
-  async getFeed(type: 'foryou' | 'following' | 'discover' = 'foryou'): Promise<Quest[]> {
-    const response = await fetch(`${this.apiUrl}/api/feed/${type}`)
-    
-    if (!response.ok) {
-      throw new Error(`Failed to get feed: ${response.statusText}`)
-    }
-    
-    return response.json()
-  }
-
-  // Media Operations
+  // Media
   async getUploadUrl(contentType: string): Promise<{ uploadUrl: string; fileId: string }> {
-    const response = await fetch(`${this.apiUrl}/api/media/upload`, {
+    return this.request('/api/media/upload', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contentType }),
     })
-    
-    if (!response.ok) {
-      throw new Error(`Failed to get upload URL: ${response.statusText}`)
-    }
-    
-    return response.json()
   }
 }
 
-// Export factory function
 export function createQuestSDK(config: {
   rpcUrl?: string
   apiUrl?: string
@@ -257,5 +253,4 @@ export function createQuestSDK(config: {
   })
 }
 
-// Export types and classes
 export default QuestSDK
