@@ -1,6 +1,7 @@
 'use client'
 
 import { usePrivy } from '@privy-io/react-auth'
+import Link from 'next/link'
 
 export function Hero() {
   const { login, authenticated } = usePrivy()
@@ -13,9 +14,9 @@ export function Hero() {
           <br />
           <span className="text-quest-purple">Main rewards.</span>
         </h1>
-        
+
         <p className="mt-6 text-lg sm:text-xl text-white/60 max-w-2xl mx-auto">
-          Post challenges with real rewards. Complete them on video. 
+          Post challenges with real rewards. Complete them on video.
           AI verifies. Winner collects the loot.
         </p>
 
@@ -28,20 +29,20 @@ export function Hero() {
               Start Questing
             </button>
           ) : (
-            <a
+            <Link
               href="/quests/new"
               className="w-full sm:w-auto rounded-xl bg-quest-purple px-8 py-4 text-lg font-semibold text-white hover:bg-quest-purple/90 transition-colors text-center"
             >
               Post a Quest
-            </a>
+            </Link>
           )}
-          
-          <a
+
+          <Link
             href="/discover"
             className="w-full sm:w-auto rounded-xl border border-white/20 px-8 py-4 text-lg font-semibold text-white hover:bg-white/5 transition-colors text-center"
           >
             Browse Quests
-          </a>
+          </Link>
         </div>
 
         {/* Stats */}

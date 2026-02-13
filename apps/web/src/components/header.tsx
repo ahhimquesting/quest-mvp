@@ -19,17 +19,11 @@ export function Header() {
 
           {/* Navigation */}
           <nav className="hidden md:flex items-center gap-8">
-            <Link 
-              href="/discover" 
+            <Link
+              href="/discover"
               className="text-sm text-white/60 hover:text-white transition-colors"
             >
               Discover
-            </Link>
-            <Link 
-              href="/leaderboard" 
-              className="text-sm text-white/60 hover:text-white transition-colors"
-            >
-              Leaderboard
             </Link>
           </nav>
 

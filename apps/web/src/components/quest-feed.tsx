@@ -55,13 +55,10 @@ export function QuestFeed() {
         {/* Tabs */}
         <div className="flex gap-4 border-b border-white/10 mb-8">
           <button className="px-4 py-3 text-sm font-medium text-quest-purple border-b-2 border-quest-purple">
-            For You
+            Open Quests
           </button>
           <button className="px-4 py-3 text-sm font-medium text-white/40 hover:text-white/60 transition-colors">
-            Following
-          </button>
-          <button className="px-4 py-3 text-sm font-medium text-white/40 hover:text-white/60 transition-colors">
-            Discover
+            My Quests
           </button>
         </div>
 
