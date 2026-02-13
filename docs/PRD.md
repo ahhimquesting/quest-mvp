@@ -1,18 +1,20 @@
 # QUEST — Product Requirements Document
 
-**Version:** 0.1.0  
-**Last Updated:** February 2025  
-**Status:** Draft  
+**Version:** 0.2.0
+**Last Updated:** February 2026
+**Status:** Implementation-ready
 
 ---
 
 ## Executive Summary
 
-QUEST is a social challenge protocol on Solana that turns everyday dares into staked missions. Users post quests with token rewards, others claim and complete them on video, AI verifies completion, and winners collect the loot.
+QUEST is a social challenge protocol on Solana. Users post quests with token rewards, others claim and complete them on video, AI verifies completion, winner gets paid.
 
 **Core Loop:** Post → Claim → Prove → Collect
 
-**Token:** $QUEST (SPL token on Solana)
+**Token:** $QUEST (`E7Xfasv5CRTNc6Xb16w36BZk3HRSogh8T4ZFimSnpump`)
+
+**MVP Scope:** Direct quests and Open quests only. No Guild, no Chain quests, no XP/levels. Get the core loop working first.
 
 ---
 
@@ -41,116 +43,242 @@ Wants to make things interesting, has crypto to stake, enjoys chaos
 ### Quest Taker — "The Performer"
 Motivated by rewards and recognition, already posts content, competitive
 
-### Verifier — "The Judge"
-Earns rewards for accurate verification, builds reputation
-
 ---
 
 ## Core Flows
 
 ### Post Quest
 1. Enter challenge description (280 char max)
-2. Set reward amount ($QUEST, SOL, USDC)
-3. Choose type: Direct / Open / Guild
-4. Set optional time limit, min level
+2. Set reward amount ($QUEST, SOL, or USDC)
+3. Choose type: Direct or Open
+4. Set optional time limit
 5. Confirm → funds locked in escrow
+6. Minimum reward: 1 $QUEST (or 0.001 SOL equivalent)
+7. Description checked against blocklist + AI moderation before save
 
 ### Claim Quest
 1. Browse open quests or receive direct quest
 2. View details (challenge, reward, time)
 3. Tap "Claim" → quest locked to you
-4. Optional: stake matching amount for bonus XP
+4. Claim deposit required: minimum 5% of quest reward (anti-grief)
+5. 24h proof deadline starts on claim
+6. Cannot claim your own quest
 
 ### Complete Quest
 1. Record video proof (15-60 seconds)
-2. AI generates caption + highlight clip
-3. Submit for verification
+2. Submit for verification
+3. Video uploaded to R2, hash computed and stored on-chain
 
-### Verification Tiers
-```
-Tier 1: AI (instant) — auto-approve >85%, auto-reject <15%
-Tier 2: Quest Giver (24h) — one-tap approve/reject
-Tier 3: Community Vote (48h) — majority decides
-Tier 4: Arbitration — protocol team final decision
-```
-
-### Settlement
-- Complete → reward released, 2.5% fee (50% burn, 50% treasury)
-- Failed → funds returned to giver, taker stake forfeited
+### Abandon Quest
+- Claimer can voluntarily abandon before submitting proof
+- Forfeits claim deposit to quest creator
+- Opens slot for other claimers
 
 ---
 
-## Quest Types
+## Verification Pipeline
+
+This is the product. The entire value prop depends on AI verification working.
+
+### Frame Extraction
+- Extract 1 frame per second (max 60 frames for 60s video)
+- Extract audio track separately
+
+### Audio Processing
+- Run Whisper transcription on audio
+- Include transcript in verification context (handles "say X" or "sing Y" quests)
+
+### Vision Analysis
+- Send frames + transcript + quest description to gpt5-mini
+- Structured output:
+```json
+{
+  "confidence": 0-100,
+  "decision": "APPROVE" | "REJECT" | "UNCERTAIN",
+  "reasoning": "string",
+  "detected_actions": ["string"],
+  "matches_description": true/false,
+  "safety_flags": ["string"]
+}
+```
+
+### Thresholds
+- confidence >= 80 AND no safety_flags → auto-approve
+- confidence <= 20 OR safety_flags present → auto-reject
+- everything else → escalate to creator review
+
+### Creator Review
+- Creator has 24h to approve or reject
+- If creator doesn't respond within 24h → auto-approve (permissionless crank)
+- Creator approval/rejection goes through API → oracle calls contract
+
+### Fallbacks
+- OpenAI timeout (30s) → retry once, then escalate to creator
+- OpenAI down → queue for retry, notify user of delay
+- Cost tracking per verification (~$0.02-0.05 per video)
+
+### Content Moderation
+- Safety flags from gpt5-mini response
+- Blocklist check on quest descriptions before creation
+- If video flagged → reject + flag account for review
+- 3 strikes = account banned
+
+---
+
+## On-chain / Off-chain Boundary
+
+### On-chain (Anchor program)
+- Quest creation + escrow lock
+- Claim registration
+- Proof hash submission (sha256 only, not the video)
+- Settlement (approve/reject with fund transfer)
+- Timeout enforcement via permissionless crank
+
+### Off-chain (API / Workers)
+- Video upload + storage
+- AI verification pipeline
+- Creator notification
+- Calling contract instructions based on verification result
+
+### Who Signs What
+- **User signs:** create_quest, claim_quest, cancel_quest, abandon_claim
+- **Backend oracle wallet signs:** approve_completion, reject_completion (after AI or creator decision)
+- **Anyone can call (permissionless):** expire_claim, auto_approve (after timeout)
+
+### Oracle Design (MVP)
+- Single backend wallet, pubkey stored in QuestConfig.authority
+- Backend receives webhook when AI completes verification
+- Backend calls approve/reject based on result
+- If creator review needed → backend waits for creator input via API, then calls contract
+- Private key in environment variable (later: KMS, then multi-sig/decentralized oracle)
+
+---
+
+## Timeout Logic
+
+All enforced in the contract:
+
+```
+Quest level:
+  time_limit: Option<i64>     — deadline for any claim to complete
+
+Claim level:
+  proof_deadline: i64          — must submit proof within 24h of claim
+  review_deadline: Option<i64> — set when proof submitted, creator has 24h
+
+Permissionless cranks:
+  expire_claim()  — anyone calls after proof_deadline passes
+  auto_approve()  — anyone calls after review_deadline (no response = approve)
+```
+
+---
+
+## Quest Types (MVP)
 
 | Type | Description |
 |------|-------------|
 | **Direct** | Posted to specific user, only they can claim |
 | **Open** | Anyone can claim, first N claimers get slots |
-| **Guild** | Multiple contributors pool rewards |
-| **Chain** | Must pass on after completion (exponential growth) |
+
+**Not in MVP:** Guild quests, Chain quests
 
 ---
 
-## Token Mechanics
+## Token & Fees
 
-**$QUEST Utility:**
-- Quest rewards (primary currency)
-- 1.5x XP multiplier for native payments
-- Quest boost (visibility)
-- Verification rewards
-- Loot drops for viral clips
+**$QUEST** (`E7Xfasv5CRTNc6Xb16w36BZk3HRSogh8T4ZFimSnpump`)
 
-**Fees:**
-- 2.5% on completed quests
-- 50% burned / 50% treasury
-- 0% on $QUEST quests during launch
+**Fee:** 2.5% on successful quest completion
+- 50% burned (Solana token program burn instruction, not dead wallet)
+- 50% to treasury (multisig, later DAO)
 
-**XP & Levels:**
+**No special treatment for $QUEST payments.** Same fee regardless of token.
 
-| Level | XP | Unlocks |
-|-------|-----|---------|
-| 1 | 0 | Basic quests |
-| 5 | 500 | Community voting |
-| 10 | 2,000 | Custom templates |
-| 50 | 50,000 | Judge status |
+**Supported tokens:** $QUEST, SOL, USDC
 
 ---
 
-## Technical Architecture
+## Anti-Abuse
 
+### Quest Creation
+- Minimum reward: 1 $QUEST (or 0.001 SOL equivalent)
+- Rate limit: max 10 quests per wallet per day
+- Description blocklist + AI moderation before save
+
+### Claiming
+- Rate limit: max 5 active claims per wallet
+- Can't claim if 2+ expired/abandoned claims in last 7 days
+- Claim deposit required (min 5% of reward)
+- Cannot claim own quest
+
+### Claim Deposit
+- Required on claim, minimum 5% of quest reward
+- Complete successfully → get deposit back
+- Abandon or fail → deposit goes to quest creator
+- Rejection due to AI safety flag → deposit returned to claimer
+
+### Verification Gaming
+- Track approval rate per creator — flag if >95% (self-dealing)
+- Track claim success rate per user — flag if suspiciously high with same creators
+- Manual review queue for flagged accounts
+
+### Content
+- Quest description: blocklist + AI moderation before save
+- Video: gpt5-mini safety_flags in verification response
+- Flagged content: reject + queue account for manual review
+- 3 strikes = account banned
+
+---
+
+## Storage
+
+**R2 for everything. Arweave is too expensive for MVP.**
+
+### Flow
+1. User uploads video → Cloudflare R2
+2. Video processed, thumbnail generated, stored in R2
+3. Hash computed and stored on-chain
+4. Quest completes successfully → keep in R2 for 90 days
+5. Quest fails/rejected → delete after 7 days
+6. Optional: user can pay to archive to Arweave (later feature)
+
+### Costs
+- R2: ~$0.015/GB/month storage + $0.36/million reads
+- 30MB video × 10k/month = 300GB = ~$4.50/month
+- vs Arweave: $1,500-3,000/month
+
+---
+
+## Auth
+
+### Privy + Solana
+1. User logs in via Privy (email, google, twitter, or wallet)
+2. Privy creates/loads embedded wallet OR connects external wallet
+3. Privy JWT contains wallet pubkey claim
+4. API validates JWT, extracts pubkey
+5. For contract interactions:
+   - Embedded wallet: API can request Privy to sign
+   - External wallet: frontend prompts user to sign, sends signed tx to API to relay
+
+### API Auth
 ```
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│   Web App   │  │  iOS App    │  │ Android App │
-│  (Next.js)  │  │ (RN/Expo)   │  │ (RN/Expo)   │
-└──────┬──────┘  └──────┬──────┘  └──────┬──────┘
-       └────────────────┼────────────────┘
-                        ▼
-              ┌─────────────────┐
-              │   API Gateway   │
-              │  (CF Workers)   │
-              └────────┬────────┘
-                       │
-       ┌───────────────┼───────────────┐
-       ▼               ▼               ▼
-┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-│    Auth     │ │   Quest     │ │   Media     │
-│  (Privy)    │ │  Service    │ │  Service    │
-└─────────────┘ └──────┬──────┘ └──────┬──────┘
-                       ▼               ▼
-              ┌─────────────┐  ┌─────────────┐
-              │   Solana    │  │   Storage   │
-              │  (Anchor)   │  │(Arweave/R2) │
-              └─────────────┘  └─────────────┘
+Authorization: Bearer <privy-jwt>
+
+JWT payload includes:
+- sub: privy user id
+- wallet: { address: "ABC123..." }
 ```
 
-**Stack:**
-- Frontend: Next.js 14, React Native, TailwindCSS
-- Auth: Privy
-- API: Cloudflare Workers, Hono
-- DB: Turso (SQLite edge), Redis
-- Chain: Solana, Anchor
-- Storage: Arweave (permanent), R2 (CDN)
-- AI: GPT-4V (verification), Whisper (captions)
+### Backend Oracle Wallet
+- Separate wallet controlled by backend
+- Only used for approve/reject/expire calls
+- Pubkey stored in QuestConfig.authority
+- Private key in environment variable (later: KMS)
+
+### Rate Limits
+- 100 requests/minute per user
+- 10 quest creates/day per wallet
+- 5 active claims per wallet
 
 ---
 
@@ -162,11 +290,12 @@ interface User {
   id: string;
   pubkey: string;
   username: string;
-  xp: number;
-  level: number;
+  avatar_url?: string;
   quests_completed: number;
   quests_posted: number;
-  verification_score: number;
+  active_claims: number;
+  flags: number;  // abuse flags, 3 = banned
+  created_at: timestamp;
 }
 ```
 
@@ -177,14 +306,19 @@ interface Quest {
   onchain_id: string;
   creator_id: string;
   description: string;
-  quest_type: 'direct' | 'open' | 'guild' | 'chain';
+  quest_type: 'direct' | 'open';
   status: QuestStatus;
   reward_amount: number;
-  reward_token: 'QUEST' | 'SOL' | 'USDC';
-  escrow_address: string;
+  reward_mint: string;  // $QUEST, SOL, or USDC mint address
+  target_pubkey?: string;  // for direct quests
+  max_claimers: number;
+  current_claimers: number;
+  deadline?: timestamp;
+  escrow_pda: string;
+  created_at: timestamp;
 }
 
-type QuestStatus = 
+type QuestStatus =
   | 'active'
   | 'claimed'
   | 'submitted'
@@ -201,7 +335,10 @@ interface Claim {
   quest_id: string;
   claimer_id: string;
   status: ClaimStatus;
-  stake_amount: number | null;
+  stake_amount: number;
+  proof_deadline: timestamp;  // 24h from claim
+  review_deadline?: timestamp;  // 24h from proof submission
+  claimed_at: timestamp;
 }
 
 type ClaimStatus =
@@ -209,6 +346,7 @@ type ClaimStatus =
   | 'submitted'
   | 'approved'
   | 'rejected'
+  | 'abandoned'
   | 'expired';
 ```
 
@@ -217,10 +355,20 @@ type ClaimStatus =
 interface Proof {
   id: string;
   claim_id: string;
-  video_url: string;
-  video_hash: string;
-  ai_score: number | null;
-  verification_tier: 1 | 2 | 3 | 4;
+  video_url: string;        // R2 URL
+  video_hash: string;       // sha256, stored on-chain
+  thumbnail_url: string;    // R2
+  arweave_url?: string;     // only if archived
+  expires_at?: timestamp;   // when R2 copy will be deleted
+  duration_seconds: number;
+  transcript?: string;
+  ai_confidence?: number;
+  ai_decision?: 'APPROVE' | 'REJECT' | 'UNCERTAIN';
+  ai_reasoning?: string;
+  safety_flags: string[];
+  final_decision?: 'approved' | 'rejected';
+  decided_by: 'ai' | 'creator' | 'timeout';
+  created_at: timestamp;
 }
 ```
 
@@ -232,7 +380,7 @@ interface Proof {
 ```rust
 #[account]
 pub struct QuestConfig {
-    pub authority: Pubkey,
+    pub authority: Pubkey,        // oracle wallet
     pub treasury: Pubkey,
     pub fee_basis_points: u16,    // 250 = 2.5%
     pub burn_basis_points: u16,   // 5000 = 50% of fee
@@ -247,11 +395,13 @@ pub struct Quest {
     pub escrow: Pubkey,
     pub reward_mint: Pubkey,
     pub reward_amount: u64,
-    pub quest_type: QuestType,
+    pub quest_type: QuestType,       // Direct or Open
     pub status: QuestStatus,
-    pub target: Option<Pubkey>,
+    pub target: Option<Pubkey>,      // for direct quests
     pub max_claimers: u8,
     pub time_limit: Option<i64>,
+    pub proof_deadline_hours: u8,    // default 24
+    pub review_deadline_hours: u8,   // default 24
     pub bump: u8,
 }
 
@@ -261,6 +411,9 @@ pub struct Claim {
     pub claimer: Pubkey,
     pub stake_amount: u64,
     pub status: ClaimStatus,
+    pub proof_deadline: i64,
+    pub review_deadline: Option<i64>,
+    pub proof_hash: Option<[u8; 32]>,
     pub bump: u8,
 }
 ```
@@ -271,66 +424,98 @@ pub fn initialize(ctx, fee_bps, burn_bps) -> Result<()>
 pub fn create_quest(ctx, reward_amount, quest_type, target, time_limit) -> Result<()>
 pub fn claim_quest(ctx, stake_amount) -> Result<()>
 pub fn submit_proof(ctx, proof_hash) -> Result<()>
-pub fn approve_completion(ctx) -> Result<()>
-pub fn reject_completion(ctx) -> Result<()>
-pub fn cancel_quest(ctx) -> Result<()>
-pub fn expire_quest(ctx) -> Result<()>
+pub fn approve_completion(ctx) -> Result<()>    // oracle only
+pub fn reject_completion(ctx) -> Result<()>     // oracle only
+pub fn cancel_quest(ctx) -> Result<()>          // creator only, before claimed
+pub fn abandon_claim(ctx) -> Result<()>         // claimer only
+pub fn expire_claim(ctx) -> Result<()>          // permissionless, after proof_deadline
+pub fn auto_approve(ctx) -> Result<()>          // permissionless, after review_deadline
+```
+
+### Validations
+```rust
+// create_quest
+- reward_amount >= min_reward
+- creator cannot be target of direct quest
+
+// claim_quest
+- stake_amount >= reward_amount * 5 / 100
+- proof_deadline = now + 24h
+- quest.creator != claimer (self-claim prevention)
+
+// approve_completion
+- only oracle can call
+- creator approval goes through API → oracle calls contract
+
+// reject_completion
+- rejection due to safety flag → return stake to claimer
+- otherwise → stake goes to quest creator
 ```
 
 ### Events
 ```rust
-#[event]
-pub struct QuestCreated { quest_id, creator, reward_amount, quest_type }
-
-#[event]
-pub struct QuestClaimed { quest_id, claimer, stake_amount }
-
-#[event]
-pub struct QuestCompleted { quest_id, claimer, reward_amount, fee_amount }
-
-#[event]
-pub struct QuestFailed { quest_id, claimer, reason }
+QuestCreated { quest_id, creator, reward_amount, quest_type }
+QuestClaimed { quest_id, claimer, stake_amount }
+QuestCompleted { quest_id, claimer, reward_amount, fee_amount }
+QuestFailed { quest_id, claimer, reason }
+ClaimAbandoned { quest_id, claimer }
+ClaimExpired { quest_id, claimer }
 ```
 
 ---
 
 ## API Endpoints
 
-### Quests
 ```
-POST   /api/quests              Create quest
-GET    /api/quests              List quests (filters: type, status, creator)
-GET    /api/quests/:id          Get quest details
-DELETE /api/quests/:id          Cancel quest (creator only, before claimed)
-POST   /api/quests/:id/claim    Claim quest
-POST   /api/quests/:id/proof    Submit proof
-POST   /api/quests/:id/approve  Approve completion (creator)
-POST   /api/quests/:id/reject   Reject completion (creator)
-GET    /api/quests/:id/votes    Get community votes
-POST   /api/quests/:id/vote     Submit vote
+# Auth
+POST   /api/auth/verify              Verify Privy JWT, return session
+
+# Quests
+POST   /api/quests                   Create quest (signs tx)
+GET    /api/quests                   List quests
+GET    /api/quests/:id               Get quest detail
+DELETE /api/quests/:id               Cancel quest (before claimed)
+
+# Claims
+POST   /api/quests/:id/claim         Claim quest
+DELETE /api/claims/:id               Abandon claim
+POST   /api/claims/:id/proof         Upload video + submit proof
+
+# Creator actions (triggers oracle)
+POST   /api/claims/:id/approve       Creator approves
+POST   /api/claims/:id/reject        Creator rejects
+
+# Users
+GET    /api/users/me
+PATCH  /api/users/me
+GET    /api/users/:pubkey
+
+# Feed
+GET    /api/feed                     Open quests, paginated
+GET    /api/feed/mine                My quests + claims
+
+# Webhooks (internal)
+POST   /api/webhooks/verification-complete    AI result callback
 ```
 
-### Users
+---
+
+## Tech Stack
+
 ```
-GET    /api/users/me            Current user
-PATCH  /api/users/me            Update profile
-GET    /api/users/:id           Get profile
-GET    /api/users/:id/quests    User's quests
-GET    /api/users/:id/claims    User's claims
+apps/web/        # Next.js 14, Privy auth, TailwindCSS
+contracts/       # Anchor program on Solana
+packages/sdk/    # TypeScript SDK
+docs/PRD.md      # This document
 ```
 
-### Feed
-```
-GET    /api/feed                Personalized feed
-GET    /api/feed/discover       Trending
-GET    /api/feed/following      Following
-```
-
-### Media
-```
-POST   /api/media/upload        Get signed upload URL
-POST   /api/media/process       Trigger video processing
-```
+- Frontend: Next.js 14, TailwindCSS
+- Auth: Privy
+- API: Cloudflare Workers, Hono
+- DB: Turso (SQLite edge), Redis
+- Chain: Solana, Anchor
+- Storage: Cloudflare R2
+- AI: gpt5-mini (verification), Whisper (transcription)
 
 ---
 
@@ -340,15 +525,14 @@ POST   /api/media/process       Trigger video processing
 1. **Achievement energy** — completion feels like unlocking
 2. **One-tap actions** — claim, approve, reject
 3. **Video-first** — proof videos are hero content
-4. **Progress visible** — XP bar always accessible
-5. **Mobile-first** — designed for thumb navigation
+4. **Mobile-first** — designed for thumb navigation
 
 ### Key Screens
-- **Home/Feed** — tabs for For You / Following / Discover
+- **Home/Feed** — open quests, paginated
 - **Quest Detail** — description, reward, claim button, proof video
 - **Post Quest** — multi-step flow with cost preview
 - **Record Proof** — camera with quest overlay
-- **Profile** — avatar, level, XP bar, quest history
+- **Profile** — avatar, quest history, active claims
 
 ### Visual Identity
 
@@ -356,103 +540,62 @@ POST   /api/media/process       Trigger video processing
 |---------|-------|
 | Primary | #7B5CFF (Electric Purple) |
 | Secondary | #0A0A0A (Black), #FFFFFF (White) |
-| Accent | #FFD700 (Gold, achievements) |
+| Accent | #FFD700 (Gold) |
 | Success | #22C55E |
 | Error | #EF4444 |
 | Typography | Inter (UI), Space Grotesk (Display) |
 | Radius | 12px (cards), 8px (buttons) |
 
-### Animations
-- Quest complete: confetti + XP tick-up
-- Level up: full-screen celebration
-- Claim: card flip
-- Verification pass: checkmark morph
+---
+
+## MVP Roadmap
+
+### Phase 1 (2 weeks)
+- [ ] Anchor program with all instructions
+- [ ] Deploy to devnet
+- [ ] Basic tests
+
+### Phase 2 (2 weeks)
+- [ ] API: quest CRUD, claim flow
+- [ ] Video upload to R2
+- [ ] AI verification pipeline
+- [ ] Oracle signing flow
+
+### Phase 3 (2 weeks)
+- [ ] Web frontend: browse, create, claim, record, submit
+- [ ] Privy auth integration
+- [ ] Creator review UI
+
+### Phase 4 (1 week)
+- [ ] Timeout cranks (manual/script initially)
+- [ ] Basic abuse tracking
+- [ ] Mainnet deploy
+
+### NOT in MVP
+- Guild quests
+- Chain quests
+- XP / levels
+- Community voting / arbitration
+- Mobile app
+- Arweave archival
+- Leaderboards
 
 ---
 
-## Success Metrics
+## Decisions Made
 
-**North Star:** Weekly Active Quest Completions
-
-### Primary Metrics
-
-| Metric | Month 1 | Month 3 |
-|--------|---------|---------|
-| Quests Created | 1,000 | 10,000 |
-| Quests Completed | 500 | 6,000 |
-| Completion Rate | 40% | 60% |
-| DAU | 500 | 5,000 |
-| WAU | 2,000 | 15,000 |
-
-### Secondary Metrics
-- Verification accuracy: >90% AI matches final outcome
-- Time to completion: <24h median
-- Viral coefficient: >0.5 shares per completion
-- D7 retention: >30%
-
-### Guardrails
-- Dispute rate: <5%
-- Content flags: <1%
-- Failed transactions: <0.1%
+| Question | Decision | Rationale |
+|----------|----------|-----------|
+| Claim stake minimum | 5% of reward | Low enough to not deter claims, high enough to prevent spam |
+| Review timeout | Auto-approve | Favors the claimer who did the work. Creator should be responsive. |
+| Supported tokens | $QUEST, SOL, USDC | Cover crypto-native and stablecoin users |
+| Video length | 15-60 seconds | Long enough to prove, short enough to verify cheaply |
+| Storage | R2 only (MVP) | 300x cheaper than Arweave. Archive later as opt-in. |
+| Fee on $QUEST | Same 2.5% | Simplicity over special treatment |
 
 ---
 
-## Roadmap
-
-### Phase 0: Token (Week 0)
-- [ ] Deploy $QUEST on Pump.fun
-- [ ] Landing page
-- [ ] Twitter/Discord setup
-
-### Phase 1: MVP (Weeks 1-4)
-- [ ] Quest program on devnet
-- [ ] Web app core loop
-- [ ] AI verification (Tier 1-2)
-- [ ] Basic profile and feed
-
-### Phase 2: Mobile + Polish (Weeks 5-8)
-- [ ] iOS TestFlight
-- [ ] Android beta
-- [ ] Community voting (Tier 3)
-- [ ] XP and levels
-- [ ] Push notifications
-
-### Phase 3: Growth (Weeks 9-12)
-- [ ] Chain Quests
-- [ ] Guild Quests
-- [ ] Loot drops
-- [ ] Creator partnerships
-- [ ] Leaderboards
-
-### Phase 4: Scale (Months 4-6)
-- [ ] Governance
-- [ ] API for integrations
-- [ ] Brand quests
-- [ ] International expansion
-
----
-
-## Open Questions
-
-### Product
-1. Allow zero-reward quests (just XP)?
-2. NSFW quests with age gating?
-3. Max chain length for Chain Quests?
-4. Quest templates/presets?
-
-### Technical
-1. Arweave vs Filecoin for storage?
-2. Oracle design for off-chain → on-chain verification?
-3. Multi-sig or DAO for treasury?
-
-### Business
-1. Brand-sponsored quests?
-2. Geographic restrictions?
-3. Insurance/reserve fund for disputes?
-
----
-
-## Appendix: Prohibited Categories
+## Prohibited Categories
 
 1. Illegal activities
 2. Harm to self/others
@@ -467,35 +610,28 @@ POST   /api/media/process       Trigger video processing
 
 ---
 
-## Appendix: AI Verification Prompt
+## Verification Prompt
 
 ```
-You are a quest verification AI. Given a quest description and video, determine completion.
+You are a quest verification AI. Analyze the video frames and audio transcript to determine if the quest was completed.
 
-Quest: {description}
-Video: {video_frames}
+Quest description: {description}
+Video frames: {frames}
+Audio transcript: {transcript}
 
-Respond with:
-1. Confidence score (0-100)
-2. Reasoning (2-3 sentences)
-3. Decision: APPROVE, REJECT, or UNCERTAIN
+Respond with structured JSON:
+{
+  "confidence": <0-100>,
+  "decision": "APPROVE" | "REJECT" | "UNCERTAIN",
+  "reasoning": "<2-3 sentences>",
+  "detected_actions": ["<action1>", "<action2>"],
+  "matches_description": <true/false>,
+  "safety_flags": ["<flag1>"]  // violence, nudity, self-harm, etc. Empty if none.
+}
 
-Be strict but fair.
-```
-
----
-
-## Appendix: XP Formula
-
-```
-base_xp = 100
-reward_bonus = reward_value_usd * 10
-streak_multiplier = 1 + (streak_days * 0.1)  // max 2x
-token_multiplier = 1.5 if paid_in_quest else 1
-
-total_xp = (base_xp + reward_bonus) * streak_multiplier * token_multiplier
+Be strict but fair. Only APPROVE if clearly completed. Flag any unsafe content.
 ```
 
 ---
 
-*Last reviewed February 2025*
+*Last reviewed February 2026*
