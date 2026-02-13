@@ -1,6 +1,9 @@
 import { Connection, PublicKey, Transaction, SystemProgram } from '@solana/web3.js'
 import { AnchorProvider, Program, Idl, BN } from '@coral-xyz/anchor'
 
+// Constants
+export const QUEST_MINT = new PublicKey('E7Xfasv5CRTNc6Xb16w36BZk3HRSogh8T4ZFimSnpump')
+
 // Types
 export type QuestType = 'direct' | 'open' | 'guild' | 'chain'
 export type QuestStatus = 'active' | 'claimed' | 'completed' | 'failed' | 'cancelled' | 'expired'

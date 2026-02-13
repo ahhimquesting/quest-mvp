@@ -8,12 +8,18 @@ quest = "QUESTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 [programs.devnet]
 quest = "QUESTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
+[programs.mainnet-beta]
+quest = "QUESTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
 cluster = "Localnet"
 wallet = "~/.config/solana/id.json"
+
+[constants]
+quest_mint = "E7Xfasv5CRTNc6Xb16w36BZk3HRSogh8T4ZFimSnpump"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
