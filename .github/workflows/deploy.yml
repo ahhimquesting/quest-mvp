@@ -1,0 +1,65 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-web:
+    name: Deploy Web
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build:web
+        env:
+          NEXT_PUBLIC_PRIVY_APP_ID: ${{ secrets.PRIVY_APP_ID }}
+          NEXT_PUBLIC_SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+          NEXT_PUBLIC_QUEST_PROGRAM_ID: ${{ secrets.QUEST_PROGRAM_ID }}
+          NEXT_PUBLIC_QUEST_MINT: E7Xfasv5CRTNc6Xb16w36BZk3HRSogh8T4ZFimSnpump
+          NEXT_PUBLIC_API_URL: ${{ secrets.API_URL }}
+
+      - uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: "--prod"
+
+  deploy-contracts:
+    name: Deploy Program
+    runs-on: ubuntu-latest
+    if: contains(github.event.head_commit.message, 'contract:')
+    environment: mainnet-beta
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: coral-xyz/setup-anchor@v2
+        with:
+          anchor-version: "0.30.1"
+
+      - name: Build
+        run: cd contracts && anchor build
+
+      - name: Deploy to mainnet-beta
+        run: |
+          cd contracts
+          echo "${{ secrets.DEPLOY_KEYPAIR }}" > deploy-keypair.json
+          anchor deploy --provider.cluster mainnet-beta --provider.wallet deploy-keypair.json
+          rm deploy-keypair.json
