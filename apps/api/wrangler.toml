@@ -1,0 +1,36 @@
+name = "quest-api"
+main = "src/index.ts"
+compatibility_date = "2024-05-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "development"
+QUEST_PROGRAM_ID = "QUESTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+QUEST_MINT = "E7Xfasv5CRTNc6Xb16w36BZk3HRSogh8T4ZFimSnpump"
+R2_BUCKET_NAME = "quest-media"
+R2_PUBLIC_URL = "https://media.quest.gg"
+
+# R2 Bucket
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "quest-media"
+
+# Queue for verification pipeline
+[[queues.producers]]
+binding = "VERIFICATION_QUEUE"
+queue = "quest-verification"
+
+[[queues.consumers]]
+queue = "quest-verification"
+max_batch_size = 1
+max_batch_timeout = 30
+max_retries = 2
+
+# KV for rate limiting
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "placeholder-kv-id"
+
+# Cron trigger for crank (every 5 minutes)
+[triggers]
+crons = ["*/5 * * * *"]
