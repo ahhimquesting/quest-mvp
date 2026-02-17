@@ -506,7 +506,7 @@ POST   /api/webhooks/verification-complete    AI result callback
 apps/web/        # Next.js 14, Privy auth, TailwindCSS
 contracts/       # Anchor program on Solana
 packages/sdk/    # TypeScript SDK
-docs/PRD.md      # This document
+product/PRD.md   # This document
 ```
 
 - Frontend: Next.js 14, TailwindCSS

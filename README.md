@@ -22,7 +22,7 @@ User A creates a quest and funds the reward with $QUEST → User B accepts the c
 apps/web/        # nextjs 14, privy auth, tailwind
 contracts/       # anchor program on solana  
 packages/sdk/    # typescript sdk
-docs/PRD.md      # full spec
+product/PRD.md   # full spec
 ```
 
 ### contracts

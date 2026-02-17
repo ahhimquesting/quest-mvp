@@ -1,0 +1,29 @@
+# dependencies
+node_modules/
+
+# build
+.next/
+out/
+dist/
+target/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# os
+.DS_Store
+Thumbs.db
+
+# ide
+.vscode/
+.idea/
+
+# anchor
+contracts/target/
+test-ledger/
+
+# misc
+*.log
+*.tsbuildinfo
