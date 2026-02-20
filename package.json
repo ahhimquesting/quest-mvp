@@ -5,9 +5,12 @@
   "description": "Social challenge protocol on Solana",
   "scripts": {
     "dev:web": "pnpm --filter @quest/web dev",
+    "dev:api": "pnpm --filter @quest/api dev",
     "dev:mobile": "pnpm --filter @quest/mobile start",
     "build": "turbo run build",
     "build:web": "pnpm --filter @quest/web build",
+    "build:api": "pnpm --filter @quest/api build",
+    "deploy:api": "pnpm --filter @quest/api deploy",
     "build:contracts": "cd contracts && anchor build",
     "test": "turbo run test",
     "test:contracts": "cd contracts && anchor test",

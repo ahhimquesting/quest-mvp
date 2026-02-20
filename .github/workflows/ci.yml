@@ -54,6 +54,24 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @quest/sdk tsc --noEmit
 
+  api:
+    name: API Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @quest/api typecheck
+
   web:
     name: Web Build
     runs-on: ubuntu-latest
